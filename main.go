@@ -27,9 +27,13 @@ import (
 	// Uncomment the following line to load the gcp plugin (only required to authenticate against GKE clusters).
 	// _ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 
-	clientset "k8s.io/sample-controller/pkg/generated/clientset/versioned"
-	informers "k8s.io/sample-controller/pkg/generated/informers/externalversions"
-	"k8s.io/sample-controller/pkg/signals"
+	clientset "evanlixin/sample-controller-dev/pkg/generated/clientset/versioned"
+	informers "evanlixin/sample-controller-dev/pkg/generated/informers/externalversions"
+	"evanlixin/sample-controller-dev/pkg/signals"
+
+	barclientset "evanlixin/sample-controller-dev/pkg/client_bar/clientset/versioned"
+	barcontroller "evanlixin/sample-controller-dev/pkg/client_bar/controller"
+	barinformers "evanlixin/sample-controller-dev/pkg/client_bar/informers/externalversions"
 )
 
 var (
@@ -59,21 +63,39 @@ func main() {
 		klog.Fatalf("Error building example clientset: %s", err.Error())
 	}
 
+	barClient, err := barclientset.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatalf("Error building bar clientset: %s", err.Error())
+	}
+
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
 	exampleInformerFactory := informers.NewSharedInformerFactory(exampleClient, time.Second*30)
+	barInformerFactory := barinformers.NewSharedInformerFactory(barClient, time.Second * 30)
 
 	controller := NewController(kubeClient, exampleClient,
 		kubeInformerFactory.Apps().V1().Deployments(),
 		exampleInformerFactory.Samplecontroller().V1alpha1().Foos())
 
+	barController := barcontroller.NewBarController(kubeClient, barClient,
+		kubeInformerFactory.Apps().V1().Deployments(),
+		barInformerFactory.Evancontroller().V1alpha1().Bars())
+
 	// notice that there is no need to run Start methods in a separate goroutine. (i.e. go kubeInformerFactory.Start(stopCh)
 	// Start method is non-blocking and runs all registered informers in a dedicated goroutine.
 	kubeInformerFactory.Start(stopCh)
 	exampleInformerFactory.Start(stopCh)
+	barInformerFactory.Start(stopCh)
 
-	if err = controller.Run(2, stopCh); err != nil {
+	go func() {
+		if err = controller.Run(2, stopCh); err != nil {
+			klog.Fatalf("Error running controller: %s", err.Error())
+		}
+	}()
+
+	if err = barController.Run(2, stopCh); err != nil {
 		klog.Fatalf("Error running controller: %s", err.Error())
 	}
+
 }
 
 func init() {
